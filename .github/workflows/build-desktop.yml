@@ -1,0 +1,163 @@
+name: Build Desktop Installers
+
+# Builds B&B CRM installers for Windows, macOS, and Linux in the cloud.
+# Outputs are attached to a GitHub Release.
+#
+# When to run:
+#   1. Manually from the Actions tab ("Run workflow")
+#   2. Automatically when you push a tag like v1.0.0, v1.1.0, etc.
+#
+# Output files (downloadable from the Release page):
+#   • Windows:  B&B-CRM-Setup-1.0.0.exe           (NSIS installer)
+#   • macOS:    B&B-CRM-1.0.0-arm64.dmg           (Apple Silicon)
+#              B&B-CRM-1.0.0-x64.dmg              (Intel Macs)
+#   • Linux:    B&B-CRM-1.0.0-x64.AppImage        (portable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label (e.g. 1.0.0)'
+        required: false
+        default: '1.0.0'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            artifact_name: B&B-CRM-Setup
+            artifact_ext: exe
+          - os: macos-latest
+            platform: mac
+            artifact_name: B&B-CRM
+            artifact_ext: dmg
+          - os: ubuntu-latest
+            platform: linux
+            artifact_name: B&B-CRM
+            artifact_ext: AppImage
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Build Next.js (standalone)
+        run: bun run build
+
+      - name: Prepare Electron resources
+        run: bun run build:electron
+
+      - name: Show version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version $VERSION"
+
+      - name: Build Electron app (Windows)
+        if: matrix.platform == 'win'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bunx electron-builder --win nsis --x64 --config.directories.output=dist
+
+      - name: Build Electron app (macOS — both archs)
+        if: matrix.platform == 'mac'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing — uncomment & set secrets to enable proper Mac signing
+          # CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          # CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bunx electron-builder --mac dmg --x64 --arm64 --config.directories.output=dist
+
+      - name: Build Electron app (Linux)
+        if: matrix.platform == 'linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bunx electron-builder --linux AppImage --x64 --config.directories.output=dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: B&B-CRM-${{ matrix.platform }}-${{ steps.version.outputs.version }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+          if-no-files-found: warn
+          retention-days: 30
+
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | head -20
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: B&B CRM ${{ github.ref_name }}
+          body: |
+            ## B&B CRM ${{ github.ref_name }}
+
+            ### Downloads
+            - **Windows**: `.exe` installer — double-click to install
+            - **macOS Intel**: `.dmg` (x64) — drag to Applications
+            - **macOS Apple Silicon**: `.dmg` (arm64) — drag to Applications
+            - **Linux**: `.AppImage` — chmod +x and run
+
+            ### First run on Mac
+            Since these builds are not code-signed, the first time you open B&B CRM on Mac, you'll see "B&B CRM cannot be opened because the developer cannot be verified." Right-click the app → **Open** → **Open anyway**. You only need to do this once.
+
+            ### First run on Windows
+            SmartScreen may show "Windows protected your PC." Click **More info** → **Run anyway**.
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

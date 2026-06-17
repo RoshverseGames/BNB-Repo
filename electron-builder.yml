@@ -1,0 +1,126 @@
+# electron-builder configuration for B&B CRM
+# Docs: https://www.electron.build/configuration
+
+appId: com.rohandeshpande.bnb-crm
+productName: "B&B CRM"
+copyright: "Copyright © 2026 Rohan Deshpande"
+
+# Where the compiled main.cjs and preload.cjs live
+directories:
+  output: dist
+  buildResources: build
+
+# Files to include in the app package
+files:
+  - electron/main.cjs
+  - electron/preload.cjs
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,readme}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/*.{md,markdown}"
+  - "!**/.{idea,git,cache,vscode,DS_Store}"
+  # Skip native dev-only deps that can't cross-compile
+  - "!**/node_modules/@parcel/watcher/**"
+  - "!**/node_modules/sharp/**"
+  - "!**/node_modules/@img/**"
+  - "!**/node_modules/@parcel/watcher-*/**"
+  - "!**/node_modules/@next/swc-*/**"
+  - "!**/node_modules/@swc/**"
+  - "!**/node_modules/eslint/**"
+  - "!**/node_modules/eslint-config-next/**"
+  - "!**/node_modules/@types/**"
+  - "!**/node_modules/typescript/**"
+  - "!**/node_modules/bun-types/**"
+  - "!**/node_modules/electron/**"
+  - "!**/node_modules/electron-builder/**"
+  - "!**/node_modules/esbuild/**"
+  - "!**/node_modules/png-to-ico/**"
+  - "!**/node_modules/concurrently/**"
+  - "!**/node_modules/wait-on/**"
+
+# Skip native module rebuilding — Next.js standalone already bundles what it needs.
+npmRebuild: false
+
+# Standard compression (cloud runners can handle higher; this is a good default).
+compression: maximum
+
+# The standalone Next.js build + seed DB + public assets
+extraResources:
+  - from: .next/standalone
+    to: app/.next/standalone
+    filter: ["**/*"]
+  - from: .next/standalone/public
+    to: app/public
+    filter: ["**/*"]
+  - from: .next/standalone/db
+    to: app/db
+    filter: ["**/*"]
+
+# App icon (electron-builder uses icon.ico for Windows, icon.icns for Mac,
+# and icon.png as a fallback that it converts to .icns on Mac runners)
+icon: build/icons/icon
+
+# Windows config — NSIS installer (the standard "Setup.exe" experience)
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icons/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "B&B CRM"
+  installerIcon: build/icons/icon.ico
+  uninstallerIcon: build/icons/icon.ico
+  installerHeaderIcon: build/icons/icon.ico
+  installerLanguages: ["en_US"]
+  language: "1033"
+  displayLanguageSelector: false
+
+# Mac config — DMG + zip
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  icon: build/icons/icon.icns
+  category: public.app-category.business
+  darkModeSupport: true
+
+dmg:
+  title: "B&B CRM Installer"
+  icon: build/icons/icon.icns
+  iconSize: 128
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# Linux config (bonus — AppImage)
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: build/icons/icon.png
+  category: Office
+  maintainer: "Rohan Deshpande <rohan@bridgesandblueprints.com>"
+  vendor: "Rohan Deshpande"
+  synopsis: "Modern CRM for tracking companies, people, and pipeline"
+
+appImage:
+  artifactName: "B&B-CRM-${version}-${arch}.AppImage"

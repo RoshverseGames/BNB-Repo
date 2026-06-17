@@ -1,0 +1,172 @@
+// B&B CRM — Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// The CRM user (the operator using the system). Drives the "Created By" field.
+model UserProfile {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  title       String?
+  phone       String?
+  avatarColor String   @default("#0ea5e9")
+  initials   String?
+  isDefault  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  companies   Company[]
+}
+
+model Company {
+  id                 String   @id @default(cuid())
+  name               String
+  domain             String?
+  industry           String?
+  website            String?
+  linkedinUrl        String?
+  employees          String?  // range value: 1-10, 11-50, 51-200, etc.
+  revenue            String?
+  arr                String?  // Annual Recurring Revenue (free text e.g. "$50K", "$1.2M")
+  city               String?
+  country            String?
+  address            String?
+  phone              String?
+  description        String?
+  // legacy "stage" kept for backward compat; superseded by leadStatus / pipelineStage
+  stage              String   @default("Lead")
+  idealProfile       Boolean  @default(false)
+
+  // Lead / Pipeline fields
+  leadSource         String?  // LinkedIn, Referral, Website, Cold Email, Event, Paid Ad, Inbound Call, Other
+  leadStatus         String?  // New, Contacted, Qualified, Brand Report, Negotiation, Closed Won, Closed Lost, On Hold
+  pipelineStage      String?  // Awareness, Discovery Call, Brand Audit Done, Proposal Sent, Contract Review, Won, Lost
+  priority           String?  // High, Medium, Low
+  wonLostOpen        String?  // Won, Lost, Open
+  lossReason         String?  // Budget, No Decision, Competitor Chosen, Wrong Timing, No Response, Requirement Mismatch, Other
+  productsServices   String?  // JSON-encoded array of values from productsServices options
+
+  // Relationships & ownership
+  contactPersonId    String?
+  contactPerson      Person?  @relation("CompanyContact", fields: [contactPersonId], references: [id], onDelete: SetNull)
+  createdById        String?
+  createdBy          UserProfile? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Dates & touches
+  firstContactDate   DateTime?
+  lastContactDate    DateTime?
+  nextFollowUpDate   DateTime?
+  expectedCloseDate  DateTime?
+  dealCloseDate      DateTime?
+  touchCount         Int      @default(0)
+  lastChannelUsed    String?  // Email, Call, Video Call, LinkedIn, WhatsApp, In-Person, Other
+  estimatedDeal      String?  // free text e.g. "$25K", "$120K"
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  people             Person[] @relation("CompanyPeople")
+  notes              Note[]
+  activities         Activity[]
+
+  @@index([stage])
+  @@index([leadStatus])
+  @@index([pipelineStage])
+  @@index([priority])
+  @@index([nextFollowUpDate])
+  @@index([name])
+  @@index([createdById])
+}
+
+model Person {
+  id           String   @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  title        String?
+  linkedinUrl  String?
+  city         String?
+  country      String?
+  avatarColor  String   @default("#94a3b8")
+  companyId    String?
+  company      Company? @relation("CompanyPeople", fields: [companyId], references: [id], onDelete: SetNull)
+  // Reverse link so a person can be marked as a company's primary contact
+  contactForCompanies Company[] @relation("CompanyContact")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  notes        Note[]
+  activities   Activity[]
+
+  @@index([companyId])
+  @@index([lastName])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  title     String?
+  body      String
+  companyId String?
+  personId  String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  person    Person?  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([personId])
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  type      String   // note_added, company_created, person_created, stage_changed
+  summary   String
+  companyId String?
+  personId  String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  person    Person?  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+  @@index([personId])
+  @@index([createdAt])
+}
+
+// Editable dropdown options — each "field" (leadSource, leadStatus, etc.) has a list of options.
+// Users can add/edit/delete options, and assign colors.
+model DropdownOption {
+  id        String  @id @default(cuid())
+  field     String  // e.g. "leadSource", "leadStatus", "pipelineStage", "priority", "lastChannelUsed", "productsServices", "wonLostOpen", "lossReason", "employees"
+  value     String  // unique-within-field machine value
+  label     String  // display label
+  color     String? // hex color for chip styling (optional)
+  order     Int     @default(0)
+  isDefault Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([field, value])
+  @@index([field])
+}
+
+// Per-user column preferences on the Companies table.
+model CompanyColumnPref {
+  id        String  @id @default(cuid())
+  userId    String  // which user's preference (currently default user)
+  field     String  // machine field name on Company
+  label     String  // display label
+  order     Int     @default(0)
+  visible   Boolean @default(true)
+  width     Int?
+
+  @@unique([userId, field])
+  @@index([userId])
+}
